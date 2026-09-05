@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import json
+import re
+import sys
+from pathlib import Path
+import struct
+
+ROOT = Path(__file__).resolve().parents[1]
+RES = ROOT / "src/main/resources"
+errors: list[str] = []
+notes: list[str] = []
+
+# JSON syntax
+json_files = sorted(RES.rglob("*.json")) + [RES / "pack.mcmeta"]
+for path in json_files:
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"JSON parse failed: {path.relative_to(ROOT)}: {exc}")
+notes.append(f"JSON checked: {len(json_files)} files")
+
+# No stale namespace after the deliberate rename creativecore -> creationcore.
+text_suffixes = {".java", ".json", ".toml", ".gradle", ".properties", ".md", ".mcmeta", ".yml", ".yaml"}
+for path in ROOT.rglob("*"):
+    if path.is_file() and path.suffix in text_suffixes:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if "creativecore" in text:
+            errors.append(f"Stale creativecore namespace/name in {path.relative_to(ROOT)}")
+
+# Texture dimensions from the PNG IHDR (stdlib only, so CI needs no Python packages).
+textures = sorted((RES / "assets/creationcore/textures").rglob("*.png"))
+for path in textures:
+    try:
+        raw = path.read_bytes()
+        if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
+            raise ValueError("not a PNG with an IHDR header")
+        width, height = struct.unpack(">II", raw[16:24])
+        if (width, height) != (16, 16):
+            errors.append(f"Texture is not 16x16: {path.relative_to(ROOT)} -> {(width, height)}")
+    except Exception as exc:
+        errors.append(f"Texture failed to inspect: {path.relative_to(ROOT)}: {exc}")
+notes.append(f"Textures checked: {len(textures)} files")
+
+# Resolve model texture references belonging to creationcore.
+model_files = sorted((RES / "assets/creationcore/models").rglob("*.json"))
+for model in model_files:
+    data = json.loads(model.read_text(encoding="utf-8"))
+    for ref in (data.get("textures") or {}).values():
+        if not isinstance(ref, str) or ref.startswith("#") or not ref.startswith("creationcore:"):
+            continue
+        rel = ref.split(":", 1)[1]
+        tex = RES / "assets/creationcore/textures" / f"{rel}.png"
+        if not tex.exists():
+            errors.append(f"Missing texture referenced by {model.relative_to(ROOT)}: {ref}")
+
+# Resolve blockstate model references belonging to creationcore.
+for state_file in sorted((RES / "assets/creationcore/blockstates").glob("*.json")):
+    data = json.loads(state_file.read_text(encoding="utf-8"))
+    variants = data.get("variants", {})
+    for value in variants.values():
+        values = value if isinstance(value, list) else [value]
+        for entry in values:
+            ref = entry.get("model") if isinstance(entry, dict) else None
+            if isinstance(ref, str) and ref.startswith("creationcore:"):
+                rel = ref.split(":", 1)[1]
+                target = RES / "assets/creationcore/models" / f"{rel}.json"
+                if not target.exists():
+                    errors.append(f"Missing model referenced by {state_file.relative_to(ROOT)}: {ref}")
+
+# Expected core files / recipes / compatibility tag.
+expected = [
+    RES / "data/creationcore/recipe/blank_matter.json",
+    RES / "data/creationcore/recipe/cow_spawn_egg.json",
+    RES / "data/creationcore/recipe/creative_crafting_table.json",
+    RES / "data/creationcore/recipe/void_bottling.json",
+    RES / "data/creationcore/tags/item/creative_core_containers.json",
+    RES / "data/creationcore/tags/block/mine_craft_pickaxe_bonus.json",
+    RES / "data/minecraft/tags/block/mineable/pickaxe.json",
+    RES / "assets/creationcore/models/item/mine_craft.json",
+    RES / "assets/creationcore/textures/item/mine_craft.png",
+    RES / "creationcore.mixins.json",
+    RES / "logo.png",
+    ROOT / ".github/workflows/build.yml",
+]
+for path in expected:
+    if not path.exists():
+        errors.append(f"Missing expected file: {path.relative_to(ROOT)}")
+
+# Make sure all 17 vanilla shulker boxes are present in the compatibility tag.
+tag_path = RES / "data/creationcore/tags/item/creative_core_containers.json"
+if tag_path.exists():
+    vals = json.loads(tag_path.read_text(encoding="utf-8")).get("values", [])
+    if len(vals) != 17 or len(set(vals)) != 17:
+        errors.append(f"creative_core_containers should contain 17 unique vanilla shulker boxes, found {len(vals)}")
+
+# Recipe sanity assertions for the v0.1 agreed placeholders.
+blank = json.loads((RES / "data/creationcore/recipe/blank_matter.json").read_text(encoding="utf-8"))
+if blank.get("result", {}).get("id") != "creationcore:blank_matter" or blank.get("ingredients") != [{"item": "minecraft:paper"}]:
+    errors.append("Blank Matter placeholder recipe is not exactly paper -> blank_matter")
+
+cow = json.loads((RES / "data/creationcore/recipe/cow_spawn_egg.json").read_text(encoding="utf-8"))
+if cow.get("pattern") != ["LBL", "BEB", "LBL"] or cow.get("result", {}).get("id") != "minecraft:cow_spawn_egg":
+    errors.append("Creative Crafting cow spawn egg placeholder recipe does not match the agreed pattern")
+
+smith = json.loads((RES / "data/creationcore/recipe/creative_crafting_table.json").read_text(encoding="utf-8"))
+if not (smith.get("template", {}).get("item") == "creationcore:creative_core"
+        and smith.get("base", {}).get("item") == "minecraft:crafting_table"
+        and smith.get("addition", {}).get("item") == "minecraft:netherite_block"):
+    errors.append("Creative Crafting Table smithing recipe does not match the agreed three slots")
+
+
+
+# Mine Craft v0.1 build-fix-6 resource/data assertions.
+mine_model = RES / "assets/creationcore/models/item/mine_craft.json"
+if mine_model.exists():
+    model_data = json.loads(mine_model.read_text(encoding="utf-8"))
+    if model_data.get("textures", {}).get("0") != "creationcore:item/mine_craft":
+        errors.append("Mine Craft 3D model is not using the expected texture")
+    if len(model_data.get("elements", [])) != 18:
+        errors.append("Mine Craft 3D model does not contain the expected 18 elements")
+    required_display = {"thirdperson_righthand", "thirdperson_lefthand", "firstperson_righthand", "firstperson_lefthand", "ground", "gui", "head", "fixed"}
+    if not required_display.issubset(set(model_data.get("display", {}))):
+        errors.append("Mine Craft 3D model is missing Blockbench display transforms")
+    if model_data.get("overrides"):
+        errors.append("Mine Craft single-form model must not contain custom_model_data mode overrides")
+
+bonus_tag = RES / "data/creationcore/tags/block/mine_craft_pickaxe_bonus.json"
+if bonus_tag.exists():
+    vals = set(json.loads(bonus_tag.read_text(encoding="utf-8")).get("values", []))
+    required_bonus = {"minecraft:glass", "minecraft:glass_pane", "minecraft:sea_lantern", "minecraft:glowstone", "minecraft:redstone_lamp"}
+    missing = sorted(required_bonus - vals)
+    if missing:
+        errors.append(f"Mine Craft pickaxe bonus tag is missing: {missing}")
+
+for tag_name in ("sword", "sharp_weapon", "mining", "vanishing"):
+    tag = RES / f"data/minecraft/tags/item/enchantable/{tag_name}.json"
+    if not tag.exists():
+        errors.append(f"Missing Mine Craft enchantment compatibility tag: {tag.relative_to(ROOT)}")
+        continue
+    values = json.loads(tag.read_text(encoding="utf-8")).get("values", [])
+    if "creationcore:mine_craft" not in values:
+        errors.append(f"Mine Craft missing from enchantable/{tag_name}")
+for forbidden_tag in ("mining_loot", "durability"):
+    tag = RES / f"data/minecraft/tags/item/enchantable/{forbidden_tag}.json"
+    if tag.exists() and "creationcore:mine_craft" in json.loads(tag.read_text(encoding="utf-8")).get("values", []):
+        errors.append(f"Mine Craft must not be added to enchantable/{forbidden_tag}")
+
+pickaxe_mineable = RES / "data/minecraft/tags/block/mineable/pickaxe.json"
+if pickaxe_mineable.exists():
+    values = json.loads(pickaxe_mineable.read_text(encoding="utf-8")).get("values", [])
+    if "creationcore:base_matter" not in values:
+        errors.append("Base Matter is missing from minecraft:mineable/pickaxe")
+
+mixin_file = RES / "creationcore.mixins.json"
+if mixin_file.exists():
+    mix = json.loads(mixin_file.read_text(encoding="utf-8"))
+    required_mixins = {"BlockStateBaseMixin", "LightBlockMixin", "ServerPlayerGameModeMixin"}
+    if not required_mixins.issubset(set(mix.get("mixins", []))):
+        errors.append("Mine Craft server/common mixins are incomplete")
+    if "client.ClientLevelMixin" not in mix.get("client", []):
+        errors.append("Mine Craft Barrier/Light client marker mixin is missing")
+
+logo = RES / "logo.png"
+if logo.exists():
+    raw = logo.read_bytes()
+    if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
+        errors.append("logo.png is not a valid PNG")
+    else:
+        width, height = struct.unpack(">II", raw[16:24])
+        if (width, height) != (64, 64):
+            errors.append(f"logo.png should be 64x64, got {(width, height)}")
+
+
+
+# build-fix-9 Mine Craft transaction + Base Matter generic pickaxe assertions.
+core_events = ROOT / "src/main/java/dev/creationcore/event/CoreGameplayEvents.java"
+server_gamemode_mixin = ROOT / "src/main/java/dev/creationcore/mixin/ServerPlayerGameModeMixin.java"
+base_matter_block = ROOT / "src/main/java/dev/creationcore/block/BaseMatterBlock.java"
+if core_events.exists():
+    text = core_events.read_text(encoding="utf-8")
+    for stale in ("BedBlock", "DoorBlock", "DoublePlantBlock", "MULTIPART_DROP_GUARD"):
+        if stale in text:
+            errors.append(f"Mine Craft duplicate-drop logic still contains hard-coded multipart marker: {stale}")
+    for required in ("ACTIVE_MINE_CRAFT_BREAK", "RECENT_MINE_CRAFT_BREAKS", "suppressMineCraftTransactionDrop"):
+        if required not in text:
+            errors.append(f"Mine Craft generic break transaction is missing: {required}")
+    if "player.preventsBlockDrops()" in text:
+        errors.append("Mine Craft transaction uses Player#preventsBlockDrops, unavailable in the 1.21.1 mappings used by this project")
+if server_gamemode_mixin.exists():
+    text = server_gamemode_mixin.read_text(encoding="utf-8")
+    if "@WrapMethod(method = \"destroyBlock\")" not in text or "enterMineCraftDestroyBlockCall(player, level, pos)" not in text or "finishMineCraftDestroyBlockCall" not in text:
+        errors.append("ServerPlayerGameModeMixin is missing the wrapped Mine Craft destroyBlock transaction")
+if base_matter_block.exists():
+    text = base_matter_block.read_text(encoding="utf-8")
+    if "ItemAbilities.PICKAXE_DIG" not in text or "player.getDestroySpeed(state)" not in text:
+        errors.append("Base Matter is not using generic PICKAXE_DIG + normal player destroy speed acceleration")
+
+# Obvious TODO/FIXME markers are useful to surface rather than silently ship.
+markers = []
+for path in (ROOT / "src/main/java").rglob("*.java"):
+    text = path.read_text(encoding="utf-8")
+    for n, line in enumerate(text.splitlines(), 1):
+        if "TODO" in line or "FIXME" in line:
+            markers.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
+if markers:
+    notes.append("TODO/FIXME markers:\n  " + "\n  ".join(markers))
+
+print("Creation Core v0.1 static resource validation")
+for note in notes:
+    print("[INFO]", note)
+if errors:
+    print(f"[FAIL] {len(errors)} problem(s):")
+    for e in errors:
+        print(" -", e)
+    sys.exit(1)
+print("[PASS] Resource/static checks passed.")
