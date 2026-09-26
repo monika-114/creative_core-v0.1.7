@@ -19,10 +19,10 @@ public final class ModTags {
             ResourceLocation.fromNamespaceAndPath(CreativeCoreMod.MODID, "creative_core_containers")
     );
 
-    /** Blocks which Mine Craft deliberately treats as pickaxe-efficient. */
-    public static final TagKey<Block> MINE_CRAFT_PICKAXE_BONUS = TagKey.create(
+    /** Blocks for which Mine Craft must not manufacture a self-drop when Silk Touch yields nothing. */
+    public static final TagKey<Block> MINE_CRAFT_DROP_FALLBACK_BLACKLIST = TagKey.create(
             Registries.BLOCK,
-            ResourceLocation.fromNamespaceAndPath(CreativeCoreMod.MODID, "mine_craft_pickaxe_bonus")
+            ResourceLocation.fromNamespaceAndPath(CreativeCoreMod.MODID, "mine_craft_drop_fallback_blacklist")
     );
 
     private ModTags() {}

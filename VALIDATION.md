@@ -69,8 +69,11 @@ A real NeoForge/Gradle compile still needs to be run in GitHub Actions.
 ## build-fix-6 Mine Craft 静态检查
 
 - `creationcore:mine_craft` 已注册并加入工具创造栏，但未添加生存配方。
-- `creationcore.mixins.json` 包含硬度 -1 破坏、Light Block 选中、GameMasterBlock 破坏与客户端 Barrier/Light 标记扩展。
-- `#creationcore:mine_craft_pickaxe_bonus` 已包含玻璃/染色玻璃及玻璃板、海晶灯、萤石、红石灯。
+- `creationcore.mixins.json` 包含异常硬度归一化破坏、Light Block 选中、GameMasterBlock 破坏与客户端 Barrier/Light 标记扩展。
+- 已取消 `#creationcore:mine_craft_pickaxe_bonus` 硬编码列表；挖掘工艺会检测注册表中是否存在任何能加速该方块的物品，若没有则按下界合金镐效率处理。
+- `#creationcore:mine_craft_drop_fallback_blacklist` 默认包含龙蛋、下界传送门、末地传送门和末地折跃门。
+- 硬度不在 `[0,50]` 内的方块统一按硬度 50 计算挖掘进度。
+- 掉落优先使用模拟精准采集镐的原始 loot table；无物品时才进入自身方块回退掉落。
 - `#minecraft:enchantable/sword`、`sharp_weapon`、`mining`、`vanishing` 已追加 Mine Craft；没有加入 `mining_loot` 或 `durability`。
 - `mine_craft.png` 已检查为 16×16。
 - 仍需 GitHub Actions 的真实 NeoForge 编译与实机测试来确认 Mixin 目标和交互调用在 21.1.248 上的运行结果。

@@ -10,6 +10,7 @@ import dev.creationcore.registry.ModEntities;
 import dev.creationcore.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
@@ -21,10 +22,18 @@ import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.BlockItemStateProperties;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.InfestedBlock;
+import net.minecraft.world.level.block.SculkShriekerBlock;
+import net.minecraft.world.level.block.TrialSpawnerBlock;
+import net.minecraft.world.level.block.VaultBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerState;
+import net.minecraft.world.level.block.entity.vault.VaultState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.EventPriority;
@@ -41,6 +50,7 @@ import net.neoforged.neoforge.event.tick.LevelTickEvent;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -92,13 +102,18 @@ public final class CoreGameplayEvents {
 
         BlockState state = level.getBlockState(pos);
         if (state.isAir()) return;
-        if (state.getBlock() instanceof InfestedBlock || state.is(Blocks.DRAGON_EGG)) return;
+
+        // Keep the original BlockEntity reference so the resolver can still copy block-entity
+        // components if a nonstandard block never fires a primary BlockDropsEvent. Normal breaks
+        // resolve at the event itself, after the break has actually been accepted.
+        BlockEntity primaryBlockEntity = level.getBlockEntity(pos);
 
         // A new deliberate Mine Craft break supersedes the tiny delayed-drop window from the
-        // player's previous break. Each actual player operation therefore still receives one item.
+        // player's previous break. Each actual player operation therefore still receives one result.
         RECENT_MINE_CRAFT_BREAKS.remove(player);
         ACTIVE_MINE_CRAFT_BREAK.set(new MineCraftBreakTransaction(
-                player, level, pos.immutable(), state, state.getBlock().asItem(), newDepth
+                player, level, pos.immutable(), state, state.getBlock().asItem(),
+                primaryBlockEntity, newDepth
         ));
     }
 
@@ -134,11 +149,19 @@ public final class CoreGameplayEvents {
             return;
         }
 
-        if (transaction.primaryItem != Items.AIR) {
-            BlockPos pos = transaction.primaryPos;
+        if (transaction.primaryDrops == null) {
+            transaction.primaryDrops = resolveMineCraftDrops(
+                    transaction.level, transaction.primaryPos, transaction.primaryState,
+                    transaction.primaryBlockEntity, transaction.player
+            );
+        }
+
+        BlockPos pos = transaction.primaryPos;
+        for (ItemStack stack : transaction.primaryDrops) {
+            if (stack.isEmpty()) continue;
             ItemEntity drop = new ItemEntity(transaction.level,
                     pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
-                    new ItemStack(transaction.primaryItem));
+                    stack.copy());
             drop.setDefaultPickUpDelay();
             transaction.level.addFreshEntity(drop);
         }
@@ -150,9 +173,10 @@ public final class CoreGameplayEvents {
     }
 
     /**
-     * Mine Craft's special drop rule is independent from loot-table enchantment processing. During
-     * a tracked player break, all block-drop events belonging to that operation have their item
-     * list cleared; the primary item is emitted once at destroyBlock completion. A short recent
+     * Mine Craft resolves the primary result once from the primary BlockDropsEvent using synthetic
+     * Silk Touch loot plus the fallback rule. During a tracked player break, all ordinary block-drop events
+     * belonging to that operation are cleared; the resolved primary result is emitted once at
+     * destroyBlock completion. A short recent
      * window also catches multiblocks that remove/drop a companion one or two ticks later.
      *
      * Events outside a tracked player break keep the previous fallback behavior so fake players or
@@ -166,25 +190,98 @@ public final class CoreGameplayEvents {
 
         if (!event.getTool().is(ModItems.MINE_CRAFT.get())) return;
 
-        BlockState state = event.getState();
-        if (state.getBlock() instanceof InfestedBlock || state.is(Blocks.DRAGON_EGG)) return;
-
         event.getDrops().clear();
-        var blockItem = state.getBlock().asItem();
-        if (blockItem == Items.AIR) return;
-
+        List<ItemStack> resolved = resolveMineCraftDrops(
+                event.getLevel(), event.getPos(), event.getState(), event.getBlockEntity(), event.getBreaker()
+        );
         BlockPos pos = event.getPos();
-        ItemEntity drop = new ItemEntity(event.getLevel(),
-                pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
-                new ItemStack(blockItem));
-        drop.setDefaultPickUpDelay();
-        event.getDrops().add(drop);
+        for (ItemStack stack : resolved) {
+            if (stack.isEmpty()) continue;
+            ItemEntity drop = new ItemEntity(event.getLevel(),
+                    pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+                    stack.copy());
+            drop.setDefaultPickUpDelay();
+            event.getDrops().add(drop);
+        }
+    }
+
+    /**
+     * Resolve Mine Craft's item result in three stages:
+     * 1) ask the original block loot table for drops using a real Silk Touch pickaxe;
+     * 2) if that produced nothing, honor the fallback blacklist;
+     * 3) otherwise manufacture one copy of the block's own item, matching the legacy Mine Craft rule.
+     */
+    private static List<ItemStack> resolveMineCraftDrops(ServerLevel level, BlockPos pos, BlockState state,
+                                                         BlockEntity blockEntity, Entity breaker) {
+        ItemStack silkTool = Items.NETHERITE_PICKAXE.getDefaultInstance();
+        silkTool.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
+                .getOrThrow(Enchantments.SILK_TOUCH), 1);
+
+        List<ItemStack> silkDrops = Block.getDrops(state, level, pos, blockEntity, breaker, silkTool);
+        if (!silkDrops.isEmpty()) {
+            List<ItemStack> result = new ArrayList<>(silkDrops.size());
+            for (ItemStack stack : silkDrops) {
+                ItemStack copy = stack.copy();
+                applyMineCraftPreservedState(copy, state);
+                result.add(copy);
+            }
+            return result;
+        }
+
+        if (state.is(ModTags.MINE_CRAFT_DROP_FALLBACK_BLACKLIST)) {
+            return List.of();
+        }
+
+        var blockItem = state.getBlock().asItem();
+        if (blockItem == Items.AIR) {
+            return List.of();
+        }
+
+        ItemStack fallback = new ItemStack(blockItem);
+        applyMineCraftPreservedState(fallback, state);
+        return List.of(fallback);
+    }
+
+    /** Preserve the requested stateful survival-unobtainable block variants on the dropped item. */
+    private static void applyMineCraftPreservedState(ItemStack stack, BlockState sourceState) {
+        if (!stack.is(sourceState.getBlock().asItem())) return;
+
+        BlockItemStateProperties properties = stack.getOrDefault(
+                DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY);
+        if (sourceState.getBlock() instanceof VaultBlock) {
+            VaultState sourceVaultState = sourceState.getValue(VaultBlock.STATE);
+            VaultState droppedVaultState = sourceVaultState == VaultState.ACTIVE
+                    ? VaultState.ACTIVE : VaultState.INACTIVE;
+            properties = properties
+                    .with(VaultBlock.OMINOUS, sourceState.getValue(VaultBlock.OMINOUS))
+                    .with(VaultBlock.STATE, droppedVaultState);
+        } else if (sourceState.getBlock() instanceof TrialSpawnerBlock) {
+            TrialSpawnerState sourceSpawnerState = sourceState.getValue(TrialSpawnerBlock.STATE);
+            TrialSpawnerState droppedSpawnerState = sourceSpawnerState == TrialSpawnerState.ACTIVE
+                    ? TrialSpawnerState.ACTIVE : TrialSpawnerState.INACTIVE;
+            properties = properties
+                    .with(TrialSpawnerBlock.OMINOUS, sourceState.getValue(TrialSpawnerBlock.OMINOUS))
+                    .with(TrialSpawnerBlock.STATE, droppedSpawnerState);
+        } else if (sourceState.getBlock() instanceof SculkShriekerBlock) {
+            properties = properties.with(SculkShriekerBlock.CAN_SUMMON,
+                    sourceState.getValue(SculkShriekerBlock.CAN_SUMMON));
+        }
+
+        if (!properties.isEmpty()) {
+            stack.set(DataComponents.BLOCK_STATE, properties);
+        }
     }
 
     private static boolean suppressMineCraftTransactionDrop(BlockDropsEvent event) {
         MineCraftBreakTransaction active = ACTIVE_MINE_CRAFT_BREAK.get();
         if (active != null && active.level == event.getLevel() && belongsToMineCraftBreak(
                 event, active.player, active.primaryPos, active.primaryItem)) {
+            if (event.getPos().equals(active.primaryPos) && active.primaryDrops == null) {
+                active.primaryDrops = resolveMineCraftDrops(
+                        event.getLevel(), event.getPos(), event.getState(),
+                        event.getBlockEntity(), event.getBreaker()
+                );
+            }
             event.getDrops().clear();
             if (!event.getPos().equals(active.primaryPos)) {
                 event.setDroppedExperience(0);
@@ -252,16 +349,19 @@ public final class CoreGameplayEvents {
         private final BlockPos primaryPos;
         private final BlockState primaryState;
         private final net.minecraft.world.item.Item primaryItem;
+        private final BlockEntity primaryBlockEntity;
+        private List<ItemStack> primaryDrops;
         private final int destroyCallDepth;
 
         private MineCraftBreakTransaction(ServerPlayer player, ServerLevel level, BlockPos primaryPos,
                                           BlockState primaryState, net.minecraft.world.item.Item primaryItem,
-                                          int destroyCallDepth) {
+                                          BlockEntity primaryBlockEntity, int destroyCallDepth) {
             this.player = player;
             this.level = level;
             this.primaryPos = primaryPos;
             this.primaryState = primaryState;
             this.primaryItem = primaryItem;
+            this.primaryBlockEntity = primaryBlockEntity;
             this.destroyCallDepth = destroyCallDepth;
         }
     }

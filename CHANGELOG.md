@@ -1,3 +1,12 @@
+## build-fix-15 - Mine Craft generalized hardness / Silk Touch drop resolver
+
+- Mine Craft now treats every block hardness outside the inclusive `[0, 50]` range as hardness `50`; the old hardness `-1`-only special case was removed.
+- Removed the hard-coded glass/light-block pickaxe bonus tag. If no registered vanilla or modded item accelerates a block above bare-hand speed, Mine Craft treats that block as pickaxe-efficient at Netherite speed.
+- Mine Craft drop resolution now first evaluates the block loot table with a synthetic Silk Touch Netherite pickaxe. Only when that produces no item does the legacy one-block self-drop fallback run.
+- Added `#creationcore:mine_craft_drop_fallback_blacklist` (dragon egg, Nether portal, End portal, End gateway) to suppress the self-drop fallback for excluded blocks.
+- Vault drops preserve `ominous` and normalize non-`active` vault states to `inactive`; active remains active. Trial spawners do the equivalent for `ominous` and `trial_spawner_state`. Sculk shriekers preserve `can_summon`.
+- The generic player break transaction and delayed multiblock duplicate-drop suppression remain in place.
+
 ## build-fix-7 — startup crash
 
 - Fixed LightBlockMixin accessing `creationcore:mine_craft` before the deferred item registry was bound during vanilla block bootstrap.

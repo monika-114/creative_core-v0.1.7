@@ -79,7 +79,7 @@ expected = [
     RES / "data/creationcore/recipe/creative_crafting_table.json",
     RES / "data/creationcore/recipe/void_bottling.json",
     RES / "data/creationcore/tags/item/creative_core_containers.json",
-    RES / "data/creationcore/tags/block/mine_craft_pickaxe_bonus.json",
+    RES / "data/creationcore/tags/block/mine_craft_drop_fallback_blacklist.json",
     RES / "data/minecraft/tags/block/mineable/pickaxe.json",
     RES / "assets/creationcore/models/item/mine_craft.json",
     RES / "assets/creationcore/textures/item/mine_craft.png",
@@ -129,13 +129,13 @@ if mine_model.exists():
     if model_data.get("overrides"):
         errors.append("Mine Craft single-form model must not contain custom_model_data mode overrides")
 
-bonus_tag = RES / "data/creationcore/tags/block/mine_craft_pickaxe_bonus.json"
-if bonus_tag.exists():
-    vals = set(json.loads(bonus_tag.read_text(encoding="utf-8")).get("values", []))
-    required_bonus = {"minecraft:glass", "minecraft:glass_pane", "minecraft:sea_lantern", "minecraft:glowstone", "minecraft:redstone_lamp"}
-    missing = sorted(required_bonus - vals)
+blacklist_tag = RES / "data/creationcore/tags/block/mine_craft_drop_fallback_blacklist.json"
+if blacklist_tag.exists():
+    vals = set(json.loads(blacklist_tag.read_text(encoding="utf-8")).get("values", []))
+    required_blacklist = {"minecraft:dragon_egg", "minecraft:nether_portal", "minecraft:end_portal", "minecraft:end_gateway"}
+    missing = sorted(required_blacklist - vals)
     if missing:
-        errors.append(f"Mine Craft pickaxe bonus tag is missing: {missing}")
+        errors.append(f"Mine Craft fallback blacklist is missing: {missing}")
 
 for tag_name in ("sword", "sharp_weapon", "mining", "vanishing"):
     tag = RES / f"data/minecraft/tags/item/enchantable/{tag_name}.json"
@@ -186,7 +186,9 @@ if core_events.exists():
     for stale in ("BedBlock", "DoorBlock", "DoublePlantBlock", "MULTIPART_DROP_GUARD"):
         if stale in text:
             errors.append(f"Mine Craft duplicate-drop logic still contains hard-coded multipart marker: {stale}")
-    for required in ("ACTIVE_MINE_CRAFT_BREAK", "RECENT_MINE_CRAFT_BREAKS", "suppressMineCraftTransactionDrop"):
+    for required in ("ACTIVE_MINE_CRAFT_BREAK", "RECENT_MINE_CRAFT_BREAKS", "suppressMineCraftTransactionDrop",
+                     "resolveMineCraftDrops", "MINE_CRAFT_DROP_FALLBACK_BLACKLIST",
+                     "VaultBlock.OMINOUS", "TrialSpawnerBlock.OMINOUS", "SculkShriekerBlock.CAN_SUMMON"):
         if required not in text:
             errors.append(f"Mine Craft generic break transaction is missing: {required}")
     if "player.preventsBlockDrops()" in text:
@@ -252,6 +254,18 @@ if mine_item_java.exists():
         errors.append("Mine Craft sword conversion does not preserve zero durability consumption")
     if "ItemAbilities.SWORD_DIG" not in mine_item_text or "ItemAbilities.SWORD_SWEEP" not in mine_item_text:
         errors.append("Mine Craft is missing sword item abilities")
+    if "BuiltInRegistries.ITEM" not in mine_item_text or "anyOtherItemAccelerates" not in mine_item_text:
+        errors.append("Mine Craft is not using generic registered-item acceleration detection")
+    if "MINE_CRAFT_PICKAXE_BONUS" in mine_item_text:
+        errors.append("Mine Craft still contains the retired hard-coded pickaxe bonus tag")
+
+blockstate_mixin = ROOT / "src/main/java/dev/creationcore/mixin/BlockStateBaseMixin.java"
+if blockstate_mixin.exists():
+    mixin_text = blockstate_mixin.read_text(encoding="utf-8")
+    if "NORMALIZED_HARDNESS = 50.0F" not in mixin_text or "hardness >= 0.0F && hardness <= NORMALIZED_HARDNESS" not in mixin_text:
+        errors.append("Mine Craft hardness normalization is not the requested outside-[0,50] => 50 rule")
+    if "INDESTRUCTIBLE_PROGRESS_DIVISOR" in mixin_text:
+        errors.append("Mine Craft still contains the retired hardness -1-only special case")
 
 swords_tag = RES / "data/minecraft/tags/item/swords.json"
 if not swords_tag.exists() or "creationcore:mine_craft" not in json.loads(swords_tag.read_text(encoding="utf-8")).get("values", []):

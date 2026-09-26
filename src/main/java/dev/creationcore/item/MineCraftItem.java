@@ -1,11 +1,14 @@
 package dev.creationcore.item;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
-import dev.creationcore.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -18,7 +21,6 @@ import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
-import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.common.ItemAbilities;
@@ -28,9 +30,10 @@ import net.neoforged.neoforge.common.ItemAbility;
  * Creation Core's end-game universal tool.
  *
  * <p>The item is a real SwordItem for vanilla/mod compatibility, but all durability damage is
- * suppressed. Mining speed is the best speed of the vanilla Netherite pickaxe/axe/shovel/hoe or
- * shears for the target state. Special unbreakable
- * block progress is handled by {@code BlockStateBaseMixin}. Right-click tool actions are limited
+ * suppressed. Mining speed is the best speed of the vanilla Netherite pickaxe/axe/shovel/hoe/sword
+ * or shears for the target state; blocks with no acceleration from any registered item are treated
+ * as pickaxe-efficient. Out-of-range hardness handling is provided by {@code BlockStateBaseMixin}.
+ * Right-click tool actions are limited
  * to the axe and shovel suites.</p>
  */
 public final class MineCraftItem extends SwordItem {
@@ -40,7 +43,16 @@ public final class MineCraftItem extends SwordItem {
     private static final ItemStack NETHERITE_AXE = Items.NETHERITE_AXE.getDefaultInstance();
     private static final ItemStack NETHERITE_SHOVEL = Items.NETHERITE_SHOVEL.getDefaultInstance();
     private static final ItemStack NETHERITE_HOE = Items.NETHERITE_HOE.getDefaultInstance();
+    private static final ItemStack NETHERITE_SWORD = Items.NETHERITE_SWORD.getDefaultInstance();
     private static final ItemStack SHEARS = Items.SHEARS.getDefaultInstance();
+
+    /**
+     * Whether some registered item other than Mine Craft has a destroy speed above bare-hand speed
+     * for a block. The answer is cached per block so modded registries are supported without
+     * scanning every item every mining tick.
+     */
+    private static final Map<BlockState, Boolean> ANY_ITEM_ACCELERATES =
+            Collections.synchronizedMap(new IdentityHashMap<>());
 
     public MineCraftItem(Properties properties) {
         // Use SwordItem as the actual item class so vanilla/modded sword checks recognize Mine Craft.
@@ -81,20 +93,30 @@ public final class MineCraftItem extends SwordItem {
         speed = Math.max(speed, NETHERITE_AXE.getDestroySpeed(state));
         speed = Math.max(speed, NETHERITE_SHOVEL.getDestroySpeed(state));
         speed = Math.max(speed, NETHERITE_HOE.getDestroySpeed(state));
+        speed = Math.max(speed, NETHERITE_SWORD.getDestroySpeed(state));
         speed = Math.max(speed, SHEARS.getDestroySpeed(state));
 
-        // Explicitly make glass-family lighting blocks behave like pickaxe-efficient blocks.
-        if (state.is(ModTags.MINE_CRAFT_PICKAXE_BONUS)) {
-            speed = Math.max(speed, NETHERITE_SPEED);
-        }
-
-        // getDestroySpeed has no level/pos parameters. For vanilla indestructible states the
-        // destroy-speed field is position-independent, so EmptyBlockGetter is sufficient to
-        // ensure Player#getDestroySpeed starts with Netherite speed before Efficiency is added.
-        if (state.getDestroySpeed(EmptyBlockGetter.INSTANCE, BlockPos.ZERO) < 0.0F) {
+        // If no registered item (vanilla or modded) has any mining-speed advantage on this block,
+        // Mine Craft treats it as pickaxe-efficient at Netherite speed. This replaces the old
+        // hard-coded glass / sea-lantern / glowstone / redstone-lamp compatibility list.
+        if (!anyOtherItemAccelerates(state)) {
             speed = Math.max(speed, NETHERITE_SPEED);
         }
         return speed;
+    }
+
+    private boolean anyOtherItemAccelerates(BlockState state) {
+        return ANY_ITEM_ACCELERATES.computeIfAbsent(state, ignored -> {
+            for (Item item : BuiltInRegistries.ITEM) {
+                // Calling Mine Craft here would recursively call this method.
+                if (item == this) continue;
+                ItemStack candidate = item.getDefaultInstance();
+                if (!candidate.isEmpty() && candidate.getDestroySpeed(state) > 1.0F) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     @Override
