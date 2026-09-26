@@ -5,6 +5,14 @@
 
 # Changelog
 
+## v0.1.0 build-fix-14 — biome egg items + model/classification refresh
+- Updated the user-supplied Blockbench model/texture for Base Matter and Mine Craft.
+- Added nine biome-themed spawn-egg-named plain items: cave, arid, ocean, plains, forest, mountain, wetland, Nether and End.
+- Creative Crafting Table hardness is now 2.5 and the block is included in `minecraft:mineable/axe`.
+- Mine Craft is now an actual `SwordItem` and is included in `minecraft:swords`, while retaining universal mining, the generic multi-block drop transaction, axe/shovel right-click actions and zero durability consumption.
+- Mine Craft is shown in the Combat creative tab; the nine biome egg items are shown in Spawn Eggs.
+
+
 ## v0.1.0 build-fix-11 — Mine Craft single-form rollback + texture refresh
 - Removed Mine Craft's R-key dual-mode system, mode networking, mode-2 model override and placeholder texture.
 - Restored Mine Craft to the build-fix-6 combat values: 10 attack damage / 1.6 attack speed.

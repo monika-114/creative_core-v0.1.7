@@ -25,7 +25,7 @@ public final class ModItems {
     public static final DeferredItem<Item> VOID_BUCKET = ITEMS.registerSimpleItem("void_bucket", new Item.Properties().stacksTo(16));
     public static final DeferredItem<Item> BOTTLED_NOTHING = ITEMS.registerSimpleItem("bottled_nothing", new Item.Properties());
 
-    /** Universal end-game tool; intentionally has no durability component. */
+    /** Universal end-game sword-class tool; gameplay durability loss is fully suppressed. */
     public static final DeferredItem<MineCraftItem> MINE_CRAFT = ITEMS.register("mine_craft",
             () -> new MineCraftItem(new Item.Properties()
                     .stacksTo(1)
@@ -33,6 +33,17 @@ public final class ModItems {
                     .setNoRepair()
                     // Tooltip target: 10 attack damage, 1.6 attack speed.
                     .attributes(SwordItem.createAttributes(Tiers.NETHERITE, 5, -2.4F))));
+
+    // Biome-themed spawn-egg items. They are plain items for now; behavior can be added later.
+    public static final DeferredItem<Item> CAVE_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("cave_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> ARID_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("arid_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> OCEAN_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("ocean_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> PLAINS_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("plains_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> FOREST_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("forest_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> MOUNTAIN_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("mountain_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> WETLAND_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("wetland_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> NETHER_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("nether_biome_spawn_egg", new Item.Properties());
+    public static final DeferredItem<Item> END_BIOME_SPAWN_EGG = ITEMS.registerSimpleItem("end_biome_spawn_egg", new Item.Properties());
 
     public static final DeferredItem<BlockItem> CREATIVE_CRAFTING_TABLE = ITEMS.register("creative_crafting_table",
             () -> new BlockItem(ModBlocks.CREATIVE_CRAFTING_TABLE.get(), new Item.Properties()));

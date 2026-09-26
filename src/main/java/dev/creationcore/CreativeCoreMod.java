@@ -35,9 +35,20 @@ public final class CreativeCoreMod {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) {
             event.accept(ModItems.CREATIVE_CRAFTING_TABLE.get());
         }
-        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
-            // No survival recipe in this version; creative tab exposure is for testing.
+        if (event.getTabKey() == CreativeModeTabs.COMBAT) {
+            // Mine Craft is classified as a sword-like weapon while retaining its universal mining behavior.
             event.accept(ModItems.MINE_CRAFT.get());
+        }
+        if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
+            event.accept(ModItems.CAVE_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.ARID_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.OCEAN_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.PLAINS_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.FOREST_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.MOUNTAIN_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.WETLAND_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.NETHER_BIOME_SPAWN_EGG.get());
+            event.accept(ModItems.END_BIOME_SPAWN_EGG.get());
         }
     }
 }

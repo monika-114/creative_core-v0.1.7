@@ -39,8 +39,9 @@ for path in textures:
         if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
             raise ValueError("not a PNG with an IHDR header")
         width, height = struct.unpack(">II", raw[16:24])
-        if (width, height) != (16, 16):
-            errors.append(f"Texture is not 16x16: {path.relative_to(ROOT)} -> {(width, height)}")
+        expected_size = (32, 32) if path == RES / "assets/creationcore/textures/block/base_matter.png" else (16, 16)
+        if (width, height) != expected_size:
+            errors.append(f"Unexpected texture size: {path.relative_to(ROOT)} -> {(width, height)}, expected {expected_size}")
     except Exception as exc:
         errors.append(f"Texture failed to inspect: {path.relative_to(ROOT)}: {exc}")
 notes.append(f"Textures checked: {len(textures)} files")
@@ -198,6 +199,79 @@ if base_matter_block.exists():
     text = base_matter_block.read_text(encoding="utf-8")
     if "ItemAbilities.PICKAXE_DIG" not in text or "player.getDestroySpeed(state)" not in text:
         errors.append("Base Matter is not using generic PICKAXE_DIG + normal player destroy speed acceleration")
+
+
+# build-fix-14 item/model/classification assertions.
+biome_eggs = {
+    "cave_biome_spawn_egg": "洞穴群系生成蛋",
+    "arid_biome_spawn_egg": "干旱群系生成蛋",
+    "ocean_biome_spawn_egg": "海洋群系生成蛋",
+    "plains_biome_spawn_egg": "平原群系生成蛋",
+    "forest_biome_spawn_egg": "森林群系生成蛋",
+    "mountain_biome_spawn_egg": "山地群系生成蛋",
+    "wetland_biome_spawn_egg": "湿地群系生成蛋",
+    "nether_biome_spawn_egg": "下界群系生成蛋",
+    "end_biome_spawn_egg": "末地群系生成蛋",
+}
+zh_lang = json.loads((RES / "assets/creationcore/lang/zh_cn.json").read_text(encoding="utf-8"))
+for item_id, expected_name in biome_eggs.items():
+    model = RES / f"assets/creationcore/models/item/{item_id}.json"
+    texture = RES / f"assets/creationcore/textures/item/{item_id}.png"
+    if not model.exists():
+        errors.append(f"Missing biome spawn-egg item model: {item_id}")
+    if not texture.exists():
+        errors.append(f"Missing biome spawn-egg item texture: {item_id}")
+    if zh_lang.get(f"item.creationcore.{item_id}") != expected_name:
+        errors.append(f"Biome spawn-egg Chinese name mismatch: {item_id}")
+
+mod_items = ROOT / "src/main/java/dev/creationcore/registry/ModItems.java"
+if mod_items.exists():
+    mod_items_text = mod_items.read_text(encoding="utf-8")
+    for item_id in biome_eggs:
+        if f'"{item_id}"' not in mod_items_text:
+            errors.append(f"Biome spawn-egg item is not registered: {item_id}")
+
+creative_table_axe = RES / "data/minecraft/tags/block/mineable/axe.json"
+if not creative_table_axe.exists():
+    errors.append("Missing minecraft:mineable/axe tag for Creative Crafting Table")
+else:
+    values = json.loads(creative_table_axe.read_text(encoding="utf-8")).get("values", [])
+    if "creationcore:creative_crafting_table" not in values:
+        errors.append("Creative Crafting Table is missing from minecraft:mineable/axe")
+
+mod_blocks = ROOT / "src/main/java/dev/creationcore/registry/ModBlocks.java"
+if mod_blocks.exists() and ".strength(2.5F, 12.0F)" not in mod_blocks.read_text(encoding="utf-8"):
+    errors.append("Creative Crafting Table hardness is not 2.5")
+
+mine_item_java = ROOT / "src/main/java/dev/creationcore/item/MineCraftItem.java"
+if mine_item_java.exists():
+    mine_item_text = mine_item_java.read_text(encoding="utf-8")
+    if "extends SwordItem" not in mine_item_text:
+        errors.append("Mine Craft is not implemented as a SwordItem")
+    if "new Tool(List.of(), 1.0F, 0)" not in mine_item_text or "damageItem(" not in mine_item_text:
+        errors.append("Mine Craft sword conversion does not preserve zero durability consumption")
+    if "ItemAbilities.SWORD_DIG" not in mine_item_text or "ItemAbilities.SWORD_SWEEP" not in mine_item_text:
+        errors.append("Mine Craft is missing sword item abilities")
+
+swords_tag = RES / "data/minecraft/tags/item/swords.json"
+if not swords_tag.exists() or "creationcore:mine_craft" not in json.loads(swords_tag.read_text(encoding="utf-8")).get("values", []):
+    errors.append("Mine Craft is missing from minecraft:swords")
+
+base_model = RES / "assets/creationcore/models/block/base_matter.json"
+if base_model.exists():
+    base_model_data = json.loads(base_model.read_text(encoding="utf-8"))
+    faces = base_model_data.get("elements", [{}])[0].get("faces", {}) if base_model_data.get("elements") else {}
+    expected_uv = {
+        "north": [0, 0, 4, 4],
+        "east": [0, 4, 4, 8],
+        "south": [4, 0, 8, 4],
+        "west": [4, 4, 8, 8],
+        "up": [4, 12, 0, 8],
+        "down": [12, 0, 8, 4],
+    }
+    for face, uv in expected_uv.items():
+        if faces.get(face, {}).get("uv") != uv:
+            errors.append(f"Base Matter 32x32 Blockbench UV mismatch on {face}")
 
 # Obvious TODO/FIXME markers are useful to surface rather than silently ship.
 markers = []

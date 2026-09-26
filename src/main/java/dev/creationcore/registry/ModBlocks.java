@@ -26,7 +26,7 @@ public final class ModBlocks {
             "creative_crafting_table",
             CreativeCraftingTableBlock::new,
             BlockBehaviour.Properties.of()
-                    .strength(3.5F, 12.0F)
+                    .strength(2.5F, 12.0F)
                     .sound(SoundType.WOOD)
     );
 

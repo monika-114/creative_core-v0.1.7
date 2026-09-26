@@ -1,17 +1,25 @@
 package dev.creationcore.item;
 
+import java.util.List;
+import java.util.function.Consumer;
+
 import dev.creationcore.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Tiers;
+import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.common.ItemAbilities;
 import net.neoforged.neoforge.common.ItemAbility;
@@ -19,12 +27,13 @@ import net.neoforged.neoforge.common.ItemAbility;
 /**
  * Creation Core's end-game universal tool.
  *
- * <p>The item deliberately has no durability component. Mining speed is the best speed of the
- * vanilla Netherite pickaxe/axe/shovel/hoe or shears for the target state. Special unbreakable
+ * <p>The item is a real SwordItem for vanilla/mod compatibility, but all durability damage is
+ * suppressed. Mining speed is the best speed of the vanilla Netherite pickaxe/axe/shovel/hoe or
+ * shears for the target state. Special unbreakable
  * block progress is handled by {@code BlockStateBaseMixin}. Right-click tool actions are limited
  * to the axe and shovel suites.</p>
  */
-public final class MineCraftItem extends Item {
+public final class MineCraftItem extends SwordItem {
     private static final float NETHERITE_SPEED = Tiers.NETHERITE.getSpeed();
 
     private static final ItemStack NETHERITE_PICKAXE = Items.NETHERITE_PICKAXE.getDefaultInstance();
@@ -34,7 +43,35 @@ public final class MineCraftItem extends Item {
     private static final ItemStack SHEARS = Items.SHEARS.getDefaultInstance();
 
     public MineCraftItem(Properties properties) {
-        super(properties);
+        // Use SwordItem as the actual item class so vanilla/modded sword checks recognize Mine Craft.
+        // The custom Tool component has zero damage-per-block, and postHurtEnemy is overridden below,
+        // preserving Mine Craft's intentionally infinite durability.
+        super(Tiers.NETHERITE, properties, new Tool(List.of(), 1.0F, 0));
+    }
+
+    @Override
+    public boolean canAttackBlock(BlockState state, Level level, BlockPos pos, Player player) {
+        // Vanilla swords suppress block breaking in Creative. Mine Craft must retain its universal
+        // mining role in every game mode.
+        return true;
+    }
+
+    @Override
+    public void postHurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+        // SwordItem normally consumes durability after a successful hit. Mine Craft never wears.
+    }
+
+    @Override
+    public boolean isBarVisible(ItemStack stack) {
+        return false;
+    }
+
+    @Override
+    public <T extends LivingEntity> int damageItem(ItemStack stack, int amount, T entity, Consumer<Item> onBroken) {
+        // SwordItem/TieredItem carries vanilla durability metadata, but Mine Craft is conceptually
+        // indestructible. Returning zero prevents combat, mining and delegated axe/shovel actions
+        // from consuming durability.
+        return 0;
     }
 
     @Override
@@ -78,6 +115,7 @@ public final class MineCraftItem extends Item {
                 || ability == ItemAbilities.AXE_SCRAPE
                 || ability == ItemAbilities.AXE_WAX_OFF
                 || ability == ItemAbilities.SHOVEL_FLATTEN
+                || ability == ItemAbilities.SWORD_DIG
                 || ability == ItemAbilities.SWORD_SWEEP;
     }
 

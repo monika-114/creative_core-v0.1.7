@@ -26,7 +26,7 @@
 
 ## build-fix-6：挖掘工艺
 
-新增测试物品 **挖掘工艺**（`creationcore:mine_craft`），当前没有生存获取配方，仅加入工具与实用物品创造栏用于测试。
+新增测试物品 **挖掘工艺**（`creationcore:mine_craft`），当前没有生存获取配方；现作为剑类武器加入战斗创造栏用于测试，同时保留通用挖掘能力。
 
 - 无耐久组件，无法损坏。
 - Tooltip 目标属性：攻击伤害 10、攻击速度 1.6。
@@ -68,3 +68,11 @@ python3 tools/validate_project.py
 - Void Bucket return speed: 0.15 blocks/tick.
 - Returning Void Buckets are pickable while rising and hover at their recorded return height.
 - Void Bucket entity network update interval is 1 tick for smoother motion.
+
+
+## build-fix-14：群系生成蛋物品与分类调整
+
+- 更新基底物质与挖掘工艺的 Blockbench 模型/材质。
+- 新增 9 个群系主题生成蛋物品（当前为普通物品，暂无生成逻辑）：洞穴、干旱、海洋、平原、森林、山地、湿地、下界、末地。
+- 创造工作台硬度调整为 2.5，并加入 `minecraft:mineable/axe`，可被斧类工具正常加速。
+- 挖掘工艺改为实际继承 `SwordItem`，并加入 `minecraft:swords`；仍保留无限耐久、原有挖掘/掉落事务与斧/铲右键能力。
