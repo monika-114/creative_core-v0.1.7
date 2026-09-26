@@ -32,6 +32,7 @@ import net.minecraft.world.level.block.SculkShriekerBlock;
 import net.minecraft.world.level.block.TrialSpawnerBlock;
 import net.minecraft.world.level.block.VaultBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.DecoratedPotBlockEntity;
 import net.minecraft.world.level.block.entity.trialspawner.TrialSpawnerState;
 import net.minecraft.world.level.block.entity.vault.VaultState;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -213,6 +214,15 @@ public final class CoreGameplayEvents {
      */
     private static List<ItemStack> resolveMineCraftDrops(ServerLevel level, BlockPos pos, BlockState state,
                                                          BlockEntity blockEntity, Entity breaker) {
+        // Decorated pots override the ordinary block-loot path and may shatter into their four
+        // bricks/sherds based on the breaking tool. Mine Craft is intended to resolve drops as
+        // Silk Touch first, so use the vanilla block entity helper that creates the intact pot
+        // item and preserves its four face decorations. The pot's stored inventory is deliberately
+        // not copied into the item: vanilla DecoratedPotBlock#onRemove drops that content separately.
+        if (blockEntity instanceof DecoratedPotBlockEntity decoratedPot) {
+            return List.of(decoratedPot.getPotAsItem());
+        }
+
         ItemStack silkTool = Items.NETHERITE_PICKAXE.getDefaultInstance();
         silkTool.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
                 .getOrThrow(Enchantments.SILK_TOUCH), 1);
